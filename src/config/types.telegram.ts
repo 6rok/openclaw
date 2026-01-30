@@ -20,6 +20,23 @@ export type TelegramActionConfig = {
   sticker?: boolean;
 };
 
+/**
+ * Placeholder message config - shows a temporary "thinking" message
+ * while processing, then deletes it when the response is ready.
+ */
+export type TelegramPlaceholderConfig = {
+  /** Enable placeholder messages. Default: false. */
+  enabled?: boolean;
+  /** Custom messages to show while thinking. Randomly selected. */
+  messages?: string[];
+  /** Delete placeholder when response is ready. Default: true. */
+  deleteOnResponse?: boolean;
+  /** Show tool names as they're called. Default: false. */
+  showTools?: boolean;
+  /** Tool message format. Use {tool} as placeholder. Default: "🔧 Using {tool}..." */
+  toolMessageFormat?: string;
+};
+
 export type TelegramNetworkConfig = {
   /** Override Node's autoSelectFamily behavior (true = enable, false = disable). */
   autoSelectFamily?: boolean;
@@ -130,6 +147,8 @@ export type TelegramAccountConfig = {
   heartbeat?: ChannelHeartbeatVisibilityConfig;
   /** Controls whether link previews are shown in outbound messages. Default: true. */
   linkPreview?: boolean;
+  /** Placeholder message shown while processing (thinking indicator). */
+  placeholder?: TelegramPlaceholderConfig;
 };
 
 export type TelegramTopicConfig = {
