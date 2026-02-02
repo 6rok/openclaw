@@ -69,6 +69,7 @@ export function createPlaceholderController(params: {
   let placeholderMessageId: string | undefined;
   let active = false;
   let currentToolText = "";
+  let currentDisplayText = ""; // Track what's currently displayed to avoid duplicate edits
 
   const messages = config.messages?.length ? config.messages : DEFAULT_MESSAGES;
 
@@ -94,6 +95,7 @@ export function createPlaceholderController(params: {
       const result = await sender.send(text);
       placeholderMessageId = result.messageId;
       active = true;
+      currentDisplayText = text;
       log?.(`Placeholder sent: ${result.messageId}`);
 
       // If generateReaction is provided and we have a user message,
@@ -103,9 +105,15 @@ export function createPlaceholderController(params: {
         config
           .generateReaction(userMessage, history)
           .then(async (smartText) => {
-            if (smartText && active && placeholderMessageId === msgId) {
+            if (
+              smartText &&
+              active &&
+              placeholderMessageId === msgId &&
+              smartText !== currentDisplayText
+            ) {
               try {
                 await sender.edit(msgId, smartText);
+                currentDisplayText = smartText;
                 log?.(`Placeholder updated with smart reaction: ${smartText}`);
               } catch (editErr) {
                 log?.(`Failed to update placeholder with smart reaction: ${editErr}`);
@@ -129,7 +137,12 @@ export function createPlaceholderController(params: {
       // Special handling for reaction tool: display the message directly
       if (toolName === "reaction" && args?.message && typeof args.message === "string") {
         currentToolText = `💭 ${args.message}`;
+        if (currentToolText === currentDisplayText) {
+          log?.(`Placeholder skip (same content): ${currentToolText}`);
+          return;
+        }
         await sender.edit(placeholderMessageId, currentToolText);
+        currentDisplayText = currentToolText;
         log?.(`Placeholder updated with reaction: ${currentToolText}`);
         return; // Don't run smart generation for reaction tool
       }
@@ -137,7 +150,12 @@ export function createPlaceholderController(params: {
       const display = getToolDisplay(toolName);
       currentToolText = `${display.emoji} ${display.label}...`;
 
+      if (currentToolText === currentDisplayText) {
+        log?.(`Placeholder skip (same content): ${currentToolText}`);
+        return;
+      }
       await sender.edit(placeholderMessageId, currentToolText);
+      currentDisplayText = currentToolText;
       log?.(`Placeholder updated: ${toolName} -> ${currentToolText}`);
 
       // If generateToolDescription is provided, fire off smart generation in parallel
@@ -146,9 +164,15 @@ export function createPlaceholderController(params: {
         config
           .generateToolDescription(toolName, args)
           .then(async (smartText) => {
-            if (smartText && active && placeholderMessageId === msgId) {
+            if (
+              smartText &&
+              active &&
+              placeholderMessageId === msgId &&
+              smartText !== currentDisplayText
+            ) {
               try {
                 await sender.edit(msgId, smartText);
+                currentDisplayText = smartText;
                 log?.(`Placeholder updated with smart tool description: ${smartText}`);
               } catch (editErr) {
                 log?.(`Failed to update placeholder with smart tool description: ${editErr}`);
