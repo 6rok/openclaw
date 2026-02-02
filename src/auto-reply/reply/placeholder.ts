@@ -57,6 +57,12 @@ export type PlaceholderController = {
 
 const DEFAULT_MESSAGES = ["🤔 Thinking...", "💭 Processing...", "🧠 Working on it..."];
 
+/**
+ * Global registry of active placeholders per chat.
+ * Used to cleanup stale placeholders when a new message arrives before the previous one finishes.
+ */
+const activePlaceholders = new Map<string, { messageId: string; delete: () => Promise<void> }>();
+
 const DEFAULT_TOOL_FORMAT = "{emoji} {label}...";
 
 /**
@@ -132,8 +138,10 @@ export function createPlaceholderController(params: {
   config: PlaceholderConfig;
   sender: PlaceholderSender;
   log?: (message: string) => void;
+  /** Chat ID for global placeholder tracking (cleanup stale placeholders on new messages) */
+  chatId?: string;
 }): PlaceholderController {
-  const { config, sender, log } = params;
+  const { config, sender, log, chatId } = params;
 
   let placeholderMessageId: string | undefined;
   let active = false;
@@ -159,6 +167,20 @@ export function createPlaceholderController(params: {
     if (!config.enabled) return;
     if (active) return;
 
+    // Cleanup any stale placeholder from previous message in this chat
+    if (chatId) {
+      const stale = activePlaceholders.get(chatId);
+      if (stale) {
+        try {
+          await stale.delete();
+          log?.(`Cleaned up stale placeholder: ${stale.messageId}`);
+        } catch {
+          // Ignore errors
+        }
+        activePlaceholders.delete(chatId);
+      }
+    }
+
     try {
       const text = getRandomMessage();
       const result = await sender.send(text);
@@ -166,6 +188,14 @@ export function createPlaceholderController(params: {
       active = true;
       currentDisplayText = text;
       log?.(`Placeholder sent: ${result.messageId}`);
+
+      // Register in global tracker
+      if (chatId && placeholderMessageId) {
+        activePlaceholders.set(chatId, {
+          messageId: placeholderMessageId,
+          delete: () => sender.delete(placeholderMessageId!),
+        });
+      }
 
       // If generateReaction is provided and we have a user message,
       // fire off smart generation in parallel (don't await)
@@ -275,6 +305,11 @@ export function createPlaceholderController(params: {
       } catch (err) {
         log?.(`Failed to delete placeholder: ${err}`);
       }
+    }
+
+    // Remove from global tracker
+    if (chatId) {
+      activePlaceholders.delete(chatId);
     }
 
     placeholderMessageId = undefined;
