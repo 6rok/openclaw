@@ -59,6 +59,65 @@ const DEFAULT_MESSAGES = ["🤔 Thinking...", "💭 Processing...", "🧠 Workin
 
 const DEFAULT_TOOL_FORMAT = "{emoji} {label}...";
 
+/**
+ * Generate a natural, concise tool description based on tool name and args.
+ * Returns emoji + short description, keeping it under ~20 chars when possible.
+ */
+function getNaturalToolDescription(toolName: string, args?: Record<string, unknown>): string {
+  const getPath = () => {
+    const p = (args?.path ?? args?.file_path) as string | undefined;
+    if (!p) return "";
+    // Extract just the filename or last path segment
+    const parts = p.split("/");
+    return parts[parts.length - 1] ?? p;
+  };
+
+  const truncate = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
+
+  switch (toolName.toLowerCase()) {
+    case "read":
+      return `📖 读 ${truncate(getPath(), 15)}`;
+    case "edit":
+      return `✏️ 改 ${truncate(getPath(), 15)}`;
+    case "write":
+      return `📝 写 ${truncate(getPath(), 15)}`;
+    case "exec":
+      const cmd = (args?.command as string) ?? "";
+      const firstWord = cmd.split(/\s+/)[0] ?? "";
+      return `⚡ ${truncate(firstWord, 12)}`;
+    case "web_search":
+      const q = (args?.query as string) ?? "";
+      return `🔍 搜 ${truncate(q, 12)}`;
+    case "web_fetch":
+      const url = (args?.url as string) ?? "";
+      try {
+        const host = new URL(url).hostname.replace(/^www\./, "");
+        return `🌐 取 ${truncate(host, 12)}`;
+      } catch {
+        return `🌐 取网页`;
+      }
+    case "memory_search":
+      return `🧠 搜记忆`;
+    case "memory_get":
+      return `🧠 读记忆`;
+    case "browser":
+      const action = (args?.action as string) ?? "";
+      return `🌐 ${action || "浏览器"}`;
+    case "message":
+      return `💬 发消息`;
+    case "cron":
+      return `⏰ 定时任务`;
+    case "tts":
+      return `🔊 语音`;
+    case "image":
+      return `🖼️ 看图`;
+    case "session_status":
+      return `📊 状态`;
+    default:
+      return "";
+  }
+}
+
 export function createPlaceholderController(params: {
   config: PlaceholderConfig;
   sender: PlaceholderSender;
@@ -147,8 +206,14 @@ export function createPlaceholderController(params: {
         return; // Don't run smart generation for reaction tool
       }
 
-      const display = getToolDisplay(toolName);
-      currentToolText = `${display.emoji} ${display.label}...`;
+      // Try natural description first, fall back to generic display
+      const naturalDesc = getNaturalToolDescription(toolName, args);
+      if (naturalDesc) {
+        currentToolText = naturalDesc;
+      } else {
+        const display = getToolDisplay(toolName);
+        currentToolText = `${display.emoji} ${display.label}...`;
+      }
 
       if (currentToolText === currentDisplayText) {
         log?.(`Placeholder skip (same content): ${currentToolText}`);
