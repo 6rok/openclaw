@@ -8,6 +8,7 @@ import {
 import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
 import { clearHistoryEntriesIfEnabled } from "../auto-reply/reply/history.js";
+import { createPlaceholderController } from "../auto-reply/reply/placeholder.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../auto-reply/reply/provider-dispatcher.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
 import { removeAckReactionAfterReply } from "../channels/ack-reactions.js";
@@ -31,7 +32,7 @@ import {
   createTelegramReasoningStepState,
   splitTelegramReasoningText,
 } from "./reasoning-lane-coordinator.js";
-import { editMessageTelegram } from "./send.js";
+import { sendMessageTelegram, deleteMessageTelegram, editMessageTelegram } from "./send.js";
 import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
@@ -531,6 +532,39 @@ export const dispatchTelegramMessage = async ({
     return delivered ? "sent" : "skipped";
   };
 
+  // Create placeholder controller if enabled
+  const placeholderConfig = telegramCfg.placeholder ?? {};
+  const placeholder = createPlaceholderController({
+    config: placeholderConfig,
+    sender: {
+      send: async (text) => {
+        const result = await sendMessageTelegram(String(chatId), text, {
+          token: opts.token,
+          messageThreadId: threadSpec?.id,
+          textMode: "html",
+        });
+        return { messageId: result.messageId, chatId: result.chatId };
+      },
+      edit: async (messageId, text) => {
+        await editMessageTelegram(String(chatId), Number(messageId), text, {
+          token: opts.token,
+          textMode: "html",
+        });
+      },
+      delete: async (messageId) => {
+        await deleteMessageTelegram(String(chatId), Number(messageId), {
+          token: opts.token,
+        });
+      },
+    },
+    log: logVerbose,
+  });
+
+  // Send placeholder immediately when processing starts
+  if (placeholderConfig.enabled) {
+    await placeholder.start();
+  }
+
   let queuedFinal = false;
 
   if (statusReactionController) {
@@ -544,6 +578,10 @@ export const dispatchTelegramMessage = async ({
       dispatcherOptions: {
         ...prefixOptions,
         deliver: async (payload, info) => {
+          // Clean up placeholder before sending final reply
+          if (info.kind === "final") {
+            await placeholder.cleanup();
+          }
           const previewButtons = (
             payload.channelData?.telegram as { buttons?: TelegramInlineButtons } | undefined
           )?.buttons;
@@ -689,9 +727,14 @@ export const dispatchTelegramMessage = async ({
               splitReasoningOnNextStream = reasoningLane.hasStreamedMessage;
             }
           : undefined,
-        onToolStart: statusReactionController
-          ? async (payload) => {
-              await statusReactionController.setTool(payload.name);
+        onToolStart: (statusReactionController || placeholderConfig.enabled)
+          ? async (toolName, args) => {
+              if (statusReactionController) {
+                await statusReactionController.setTool(toolName);
+              }
+              if (placeholderConfig.enabled) {
+                await placeholder.onTool(toolName, args);
+              }
             }
           : undefined,
         onModelSelected,
