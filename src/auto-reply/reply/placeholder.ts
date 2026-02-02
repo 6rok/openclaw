@@ -76,43 +76,47 @@ function getNaturalToolDescription(toolName: string, args?: Record<string, unkno
 
   switch (toolName.toLowerCase()) {
     case "read":
-      return `📖 读 ${truncate(getPath(), 15)}`;
+      return `📖 Read ${truncate(getPath(), 15)}`;
     case "edit":
-      return `✏️ 改 ${truncate(getPath(), 15)}`;
+      return `✏️ Edit ${truncate(getPath(), 15)}`;
     case "write":
-      return `📝 写 ${truncate(getPath(), 15)}`;
-    case "exec":
+      return `📝 Write ${truncate(getPath(), 15)}`;
+    case "exec": {
       const cmd = (args?.command as string) ?? "";
       const firstWord = cmd.split(/\s+/)[0] ?? "";
-      return `⚡ ${truncate(firstWord, 12)}`;
-    case "web_search":
+      return `⚡ Bash ${truncate(firstWord, 12)}`;
+    }
+    case "web_search": {
       const q = (args?.query as string) ?? "";
-      return `🔍 搜 ${truncate(q, 12)}`;
-    case "web_fetch":
+      return `🔍 Search ${truncate(q, 12)}`;
+    }
+    case "web_fetch": {
       const url = (args?.url as string) ?? "";
       try {
         const host = new URL(url).hostname.replace(/^www\./, "");
-        return `🌐 取 ${truncate(host, 12)}`;
+        return `🌐 Fetch ${truncate(host, 12)}`;
       } catch {
-        return `🌐 取网页`;
+        return `🌐 Fetch`;
       }
+    }
     case "memory_search":
-      return `🧠 搜记忆`;
+      return `🧠 Memory`;
     case "memory_get":
-      return `🧠 读记忆`;
-    case "browser":
+      return `🧠 Memory`;
+    case "browser": {
       const action = (args?.action as string) ?? "";
-      return `🌐 ${action || "浏览器"}`;
+      return `🌐 Browser ${action}`;
+    }
     case "message":
-      return `💬 发消息`;
+      return `💬 Message`;
     case "cron":
-      return `⏰ 定时任务`;
+      return `⏰ Cron`;
     case "tts":
-      return `🔊 语音`;
+      return `🔊 TTS`;
     case "image":
-      return `🖼️ 看图`;
+      return `🖼️ Image`;
     case "session_status":
-      return `📊 状态`;
+      return `📊 Status`;
     default:
       return "";
   }
