@@ -19,6 +19,23 @@ export type PlaceholderConfig = {
   deleteOnResponse?: boolean;
   /** Tool display overrides. Key is tool name. */
   toolDisplay?: Record<string, ToolDisplayConfig>;
+  /**
+   * Optional async function to generate a smart placeholder reaction.
+   * Called with the user's message and recent history.
+   * If provided, the placeholder will be updated with this text after initial send.
+   */
+  generateReaction?: (
+    userMessage: string,
+    history?: Array<{ sender: string; body: string }>,
+  ) => Promise<string | undefined>;
+  /**
+   * Optional async function to generate a natural tool description.
+   * Called with tool name and args, should return a natural description.
+   */
+  generateToolDescription?: (
+    toolName: string,
+    args?: Record<string, unknown>,
+  ) => Promise<string | undefined>;
 };
 
 export type PlaceholderSender = {
@@ -28,8 +45,8 @@ export type PlaceholderSender = {
 };
 
 export type PlaceholderController = {
-  /** Send initial placeholder message. */
-  start: () => Promise<void>;
+  /** Send initial placeholder message. Optionally pass user message and history for smart reaction. */
+  start: (userMessage?: string, history?: Array<{ sender: string; body: string }>) => Promise<void>;
   /** Update placeholder with tool usage info. */
   onTool: (toolName: string, args?: Record<string, unknown>) => Promise<void>;
   /** Clean up placeholder (delete or leave as-is). */
@@ -68,7 +85,7 @@ export function createPlaceholderController(params: {
     };
   };
 
-  const start = async () => {
+  const start = async (userMessage?: string, history?: Array<{ sender: string; body: string }>) => {
     if (!config.enabled) return;
     if (active) return;
 
@@ -78,21 +95,70 @@ export function createPlaceholderController(params: {
       placeholderMessageId = result.messageId;
       active = true;
       log?.(`Placeholder sent: ${result.messageId}`);
+
+      // If generateReaction is provided and we have a user message,
+      // fire off smart generation in parallel (don't await)
+      if (config.generateReaction && userMessage && placeholderMessageId) {
+        const msgId = placeholderMessageId;
+        config
+          .generateReaction(userMessage, history)
+          .then(async (smartText) => {
+            if (smartText && active && placeholderMessageId === msgId) {
+              try {
+                await sender.edit(msgId, smartText);
+                log?.(`Placeholder updated with smart reaction: ${smartText}`);
+              } catch (editErr) {
+                log?.(`Failed to update placeholder with smart reaction: ${editErr}`);
+              }
+            }
+          })
+          .catch((err) => {
+            log?.(`Smart reaction generation failed: ${err}`);
+          });
+      }
     } catch (err) {
       log?.(`Failed to send placeholder: ${err}`);
     }
   };
 
-  const onTool = async (toolName: string, _args?: Record<string, unknown>) => {
+  const onTool = async (toolName: string, args?: Record<string, unknown>) => {
     if (!config.enabled) return;
     if (!active || !placeholderMessageId) return;
 
     try {
+      // Special handling for reaction tool: display the message directly
+      if (toolName === "reaction" && args?.message && typeof args.message === "string") {
+        currentToolText = `💭 ${args.message}`;
+        await sender.edit(placeholderMessageId, currentToolText);
+        log?.(`Placeholder updated with reaction: ${currentToolText}`);
+        return; // Don't run smart generation for reaction tool
+      }
+
       const display = getToolDisplay(toolName);
       currentToolText = `${display.emoji} ${display.label}...`;
 
       await sender.edit(placeholderMessageId, currentToolText);
       log?.(`Placeholder updated: ${toolName} -> ${currentToolText}`);
+
+      // If generateToolDescription is provided, fire off smart generation in parallel
+      if (config.generateToolDescription && placeholderMessageId) {
+        const msgId = placeholderMessageId;
+        config
+          .generateToolDescription(toolName, args)
+          .then(async (smartText) => {
+            if (smartText && active && placeholderMessageId === msgId) {
+              try {
+                await sender.edit(msgId, smartText);
+                log?.(`Placeholder updated with smart tool description: ${smartText}`);
+              } catch (editErr) {
+                log?.(`Failed to update placeholder with smart tool description: ${editErr}`);
+              }
+            }
+          })
+          .catch((err) => {
+            log?.(`Smart tool description generation failed: ${err}`);
+          });
+      }
     } catch (err) {
       log?.(`Failed to update placeholder: ${err}`);
     }

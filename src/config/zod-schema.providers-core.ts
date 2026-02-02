@@ -199,6 +199,18 @@ export const TelegramAccountSchemaBase = z
               .strict(),
           )
           .optional(),
+        smart: z
+          .object({
+            enabled: z.boolean().optional(),
+            provider: z.string().optional(),
+            model: z.string().optional(),
+            personality: z.string().optional(),
+            systemPrompt: z.string().optional(),
+            maxTokens: z.number().optional(),
+            timeoutMs: z.number().optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

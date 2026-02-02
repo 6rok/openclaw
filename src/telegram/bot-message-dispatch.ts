@@ -11,6 +11,7 @@ import { clearHistoryEntriesIfEnabled } from "../auto-reply/reply/history.js";
 import { createPlaceholderController } from "../auto-reply/reply/placeholder.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../auto-reply/reply/provider-dispatcher.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
+import { createSmartPlaceholderGenerator } from "../auto-reply/reply/smart-placeholder.js";
 import { removeAckReactionAfterReply } from "../channels/ack-reactions.js";
 import { logAckFailure, logTypingFailure } from "../channels/logging.js";
 import { createReplyPrefixOptions } from "../channels/reply-prefix.js";
@@ -534,8 +535,28 @@ export const dispatchTelegramMessage = async ({
 
   // Create placeholder controller if enabled
   const placeholderConfig = telegramCfg.placeholder ?? {};
+  const agentDir = resolveAgentDir(cfg, route.agentId);
+
+  logVerbose(
+    `[placeholder] config: enabled=${placeholderConfig.enabled}, smart.enabled=${placeholderConfig.smart?.enabled}, agentDir=${agentDir}`,
+  );
+
+  // Create smart placeholder generator if configured (async)
+  const smartGeneratorPromise = placeholderConfig.smart?.enabled
+    ? createSmartPlaceholderGenerator({
+        config: placeholderConfig.smart,
+        agentDir,
+        log: logVerbose,
+      })
+    : Promise.resolve(null);
+  const smartGenerator = await smartGeneratorPromise;
+
   const placeholder = createPlaceholderController({
-    config: placeholderConfig,
+    config: {
+      ...placeholderConfig,
+      generateReaction: smartGenerator?.generateReaction,
+      generateToolDescription: smartGenerator?.generateToolDescription,
+    },
     sender: {
       send: async (text) => {
         const result = await sendMessageTelegram(String(chatId), text, {
@@ -560,9 +581,21 @@ export const dispatchTelegramMessage = async ({
     log: logVerbose,
   });
 
-  // Send placeholder immediately when processing starts
+  // Send placeholder immediately when processing starts (pass user message and history for smart reaction)
   if (placeholderConfig.enabled) {
-    await placeholder.start();
+    const userMessage = ctxPayload.Body ?? ctxPayload.BodyForAgent ?? "";
+    // Get recent history for context
+    const historyEntries = historyKey ? groupHistories?.get(historyKey) : undefined;
+    const history = historyEntries?.map((e: { sender: string; body: string }) => ({
+      sender: e.sender,
+      body: e.body,
+    }));
+    logVerbose(
+      `[placeholder] starting: userMessage=${userMessage?.slice(0, 50)}, historyCount=${history?.length ?? 0}, smartGenerator=${!!smartGenerator}`,
+    );
+    await placeholder.start(userMessage, history);
+  } else {
+    logVerbose(`[placeholder] disabled, skipping`);
   }
 
   let queuedFinal = false;
