@@ -76,47 +76,47 @@ function getNaturalToolDescription(toolName: string, args?: Record<string, unkno
 
   switch (toolName.toLowerCase()) {
     case "read":
-      return `📖 Read ${truncate(getPath(), 15)}`;
+      return `● Read(${truncate(getPath(), 18)})`;
     case "edit":
-      return `✏️ Edit ${truncate(getPath(), 15)}`;
+      return `● Edit(${truncate(getPath(), 18)})`;
     case "write":
-      return `📝 Write ${truncate(getPath(), 15)}`;
+      return `● Write(${truncate(getPath(), 18)})`;
     case "exec": {
       const cmd = (args?.command as string) ?? "";
       const firstWord = cmd.split(/\s+/)[0] ?? "";
-      return `⚡ Bash ${truncate(firstWord, 12)}`;
+      return `● Bash(${truncate(firstWord, 15)})`;
     }
     case "web_search": {
       const q = (args?.query as string) ?? "";
-      return `🔍 Search ${truncate(q, 12)}`;
+      return `● Search(${truncate(q, 15)})`;
     }
     case "web_fetch": {
       const url = (args?.url as string) ?? "";
       try {
         const host = new URL(url).hostname.replace(/^www\./, "");
-        return `🌐 Fetch ${truncate(host, 12)}`;
+        return `● Fetch(${truncate(host, 15)})`;
       } catch {
-        return `🌐 Fetch`;
+        return `● Fetch()`;
       }
     }
     case "memory_search":
-      return `🧠 Memory`;
+      return `● Memory()`;
     case "memory_get":
-      return `🧠 Memory`;
+      return `● Memory()`;
     case "browser": {
       const action = (args?.action as string) ?? "";
-      return `🌐 Browser ${action}`;
+      return `● Browser(${action})`;
     }
     case "message":
-      return `💬 Message`;
+      return `● Message()`;
     case "cron":
-      return `⏰ Cron`;
+      return `● Cron()`;
     case "tts":
-      return `🔊 TTS`;
+      return `● TTS()`;
     case "image":
-      return `🖼️ Image`;
+      return `● Image()`;
     case "session_status":
-      return `📊 Status`;
+      return `● Status()`;
     default:
       return "";
   }
