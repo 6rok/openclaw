@@ -450,6 +450,7 @@ export const dispatchTelegramMessage = async ({
       },
     },
     log: logVerbose,
+    chatId: String(chatId),
   });
 
   // Send placeholder immediately when processing starts (pass user message and history for smart reaction)
