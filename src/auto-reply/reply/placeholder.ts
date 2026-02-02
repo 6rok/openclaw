@@ -75,20 +75,26 @@ function getNaturalToolDescription(toolName: string, args?: Record<string, unkno
   const truncate = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
 
   switch (toolName.toLowerCase()) {
-    case "read":
-      return `● Read(${truncate(getPath(), 18)})`;
-    case "edit":
-      return `● Edit(${truncate(getPath(), 18)})`;
-    case "write":
-      return `● Write(${truncate(getPath(), 18)})`;
+    case "read": {
+      const p = getPath();
+      return p ? `● Read(${truncate(p, 18)})` : `● Read(...)`;
+    }
+    case "edit": {
+      const p = getPath();
+      return p ? `● Edit(${truncate(p, 18)})` : `● Edit(...)`;
+    }
+    case "write": {
+      const p = getPath();
+      return p ? `● Write(${truncate(p, 18)})` : `● Write(...)`;
+    }
     case "exec": {
       const cmd = (args?.command as string) ?? "";
       const firstWord = cmd.split(/\s+/)[0] ?? "";
-      return `● Bash(${truncate(firstWord, 15)})`;
+      return firstWord ? `● Bash(${truncate(firstWord, 15)})` : `● Bash(...)`;
     }
     case "web_search": {
       const q = (args?.query as string) ?? "";
-      return `● Search(${truncate(q, 15)})`;
+      return q ? `● Search(${truncate(q, 15)})` : `● Search(...)`;
     }
     case "web_fetch": {
       const url = (args?.url as string) ?? "";
