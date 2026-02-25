@@ -18,6 +18,7 @@ import { createImageTool } from "./tools/image-tool.js";
 import { createMessageTool } from "./tools/message-tool.js";
 import { createNodesTool } from "./tools/nodes-tool.js";
 import { createPdfTool } from "./tools/pdf-tool.js";
+import { createReactionTool } from "./tools/reaction-tool.js";
 import { createSessionStatusTool } from "./tools/session-status-tool.js";
 import { createSessionsHistoryTool } from "./tools/sessions-history-tool.js";
 import { createSessionsListTool } from "./tools/sessions-list-tool.js";
@@ -242,6 +243,7 @@ export function createOpenClawTools(
     ...(webFetchTool ? [webFetchTool] : []),
     ...(imageTool ? [imageTool] : []),
     ...(pdfTool ? [pdfTool] : []),
+    createReactionTool(),
   ];
 
   const pluginTools = resolvePluginTools({

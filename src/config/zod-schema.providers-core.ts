@@ -295,6 +295,37 @@ export const TelegramAccountSchemaBase = z
     ackReaction: z.string().optional(),
     apiRoot: z.string().url().optional(),
     autoTopicLabel: AutoTopicLabelSchema,
+    placeholder: z
+      .object({
+        enabled: z.boolean().optional(),
+        messages: z.array(z.string()).optional(),
+        deleteOnResponse: z.boolean().optional(),
+        toolDisplay: z
+          .record(
+            z.string(),
+            z
+              .object({
+                emoji: z.string().optional(),
+                label: z.string().optional(),
+              })
+              .strict(),
+          )
+          .optional(),
+        smart: z
+          .object({
+            enabled: z.boolean().optional(),
+            provider: z.string().optional(),
+            model: z.string().optional(),
+            personality: z.string().optional(),
+            systemPrompt: z.string().optional(),
+            maxTokens: z.number().optional(),
+            timeoutMs: z.number().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

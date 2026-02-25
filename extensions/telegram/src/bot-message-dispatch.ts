@@ -13,6 +13,8 @@ import {
 } from "openclaw/plugin-sdk/channel-feedback";
 import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";
 import { resolveMarkdownTableMode } from "openclaw/plugin-sdk/config-runtime";
+import { createPlaceholderController } from "../../../src/auto-reply/reply/placeholder.js";
+import { createSmartPlaceholderGenerator } from "../../../src/auto-reply/reply/smart-placeholder.js";
 import {
   loadSessionStore,
   resolveSessionStoreEntry,
@@ -54,7 +56,7 @@ import {
   createTelegramReasoningStepState,
   splitTelegramReasoningText,
 } from "./reasoning-lane-coordinator.js";
-import { editMessageTelegram } from "./send.js";
+import { sendMessageTelegram, deleteMessageTelegram, editMessageTelegram } from "./send.js";
 import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
@@ -537,6 +539,57 @@ export const dispatchTelegramMessage = async ({
     },
   });
 
+  // Placeholder controller — temporary "thinking" message with tool status
+  const placeholderConfig = telegramCfg.placeholder ?? {};
+  const smartGenerator = placeholderConfig.smart?.enabled
+    ? await createSmartPlaceholderGenerator({
+        config: placeholderConfig.smart,
+        agentDir: resolveAgentDir(cfg, route.agentId),
+        log: logVerbose,
+      })
+    : null;
+  const placeholder = createPlaceholderController({
+    config: {
+      ...placeholderConfig,
+      generateReaction: smartGenerator?.generateReaction,
+      generateToolDescription: smartGenerator?.generateToolDescription,
+    },
+    sender: {
+      send: async (text) => {
+        const result = await sendMessageTelegram(String(chatId), text, {
+          token: opts.token,
+          messageThreadId: threadSpec.id,
+          textMode: "html",
+        });
+        return { messageId: String(result.messageId), chatId: String(result.chatId) };
+      },
+      edit: async (messageId, text) => {
+        await editMessageTelegram(chatId, Number(messageId), text, {
+          api: bot.api,
+          cfg,
+          accountId: route.accountId,
+        });
+      },
+      delete: async (messageId) => {
+        await deleteMessageTelegram(String(chatId), Number(messageId), {
+          token: opts.token,
+        });
+      },
+    },
+    chatId: String(chatId),
+    log: logVerbose,
+  });
+
+  if (placeholderConfig.enabled) {
+    const userMessage = ctxPayload.Body ?? ctxPayload.BodyForAgent ?? "";
+    const historyEntries = historyKey ? groupHistories?.get(historyKey) : undefined;
+    const history = historyEntries?.map((e: { sender: string; body: string }) => ({
+      sender: e.sender,
+      body: e.body,
+    }));
+    await placeholder.start(userMessage, history);
+  }
+
   let queuedFinal = false;
   let hadErrorReplyFailureOrSkip = false;
 
@@ -603,6 +656,9 @@ export const dispatchTelegramMessage = async ({
             // Assistant callbacks are fire-and-forget; ensure queued boundary
             // rotations/partials are applied before final delivery mapping.
             await enqueueDraftLaneEvent(async () => {});
+            if (placeholder.isActive()) {
+              await placeholder.cleanup();
+            }
           }
           if (
             shouldSuppressLocalTelegramExecApprovalPrompt({
@@ -778,11 +834,14 @@ export const dispatchTelegramMessage = async ({
                 splitReasoningOnNextStream = reasoningLane.hasStreamedMessage;
               })
           : undefined,
-        onToolStart: statusReactionController
-          ? async (payload) => {
-              await statusReactionController.setTool(payload.name);
-            }
-          : undefined,
+        onToolStart: async (payload) => {
+          if (statusReactionController) {
+            await statusReactionController.setTool(payload.name);
+          }
+          if (placeholder.isActive()) {
+            await placeholder.onTool(payload.name ?? "unknown", payload.args);
+          }
+        },
         onCompactionStart: statusReactionController
           ? () => statusReactionController.setCompacting()
           : undefined,
@@ -802,6 +861,10 @@ export const dispatchTelegramMessage = async ({
     // Upstream assistant callbacks are fire-and-forget; drain queued lane work
     // before stream cleanup so boundary rotations/materialization complete first.
     await draftLaneEventQueue;
+    // Safety net: clean up placeholder if still active (e.g. error path)
+    if (placeholder.isActive()) {
+      await placeholder.cleanup();
+    }
     // Must stop() first to flush debounced content before clear() wipes state.
     const streamCleanupStates = new Map<
       NonNullable<DraftLaneState["stream"]>,
