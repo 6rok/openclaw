@@ -30,6 +30,51 @@ export type TelegramActionConfig = {
   editForumTopic?: boolean;
 };
 
+/** Tool display override for placeholder. */
+export type ToolDisplayConfig = {
+  emoji?: string;
+  label?: string;
+};
+
+/** Smart placeholder generation config - uses LLM for natural reactions. */
+export type SmartPlaceholderConfig = {
+  /** Enable smart (LLM-generated) placeholder reactions. Default: false. */
+  enabled?: boolean;
+  /** Provider for the model. Default: openai. */
+  provider?: string;
+  /** Model to use for generating placeholders. Default: gpt-4o-mini. */
+  model?: string;
+  /**
+   * Personality description for generating natural reactions.
+   * If not provided, uses a generic casual style.
+   * Example: "你是小月馨，懒、傲娇、话少，不爱加标点"
+   */
+  personality?: string;
+  /** Override the full system prompt (ignores personality if set). */
+  systemPrompt?: string;
+  /** Max tokens for placeholder response. Default: 60. */
+  maxTokens?: number;
+  /** Timeout for placeholder generation in ms. Default: 3000. */
+  timeoutMs?: number;
+};
+
+/**
+ * Placeholder message config - shows a temporary "thinking" message
+ * while processing, then deletes it when the response is ready.
+ */
+export type TelegramPlaceholderConfig = {
+  /** Enable placeholder messages. Default: false. */
+  enabled?: boolean;
+  /** Custom messages to show while thinking. Randomly selected. */
+  messages?: string[];
+  /** Delete placeholder when response is ready. Default: true. */
+  deleteOnResponse?: boolean;
+  /** Tool display overrides. Key is tool name, value is {emoji, label}. */
+  toolDisplay?: Record<string, ToolDisplayConfig>;
+  /** Smart placeholder config - uses LLM for natural reactions. */
+  smart?: SmartPlaceholderConfig;
+};
+
 export type TelegramNetworkConfig = {
   /** Override Node's autoSelectFamily behavior (true = enable, false = disable). */
   autoSelectFamily?: boolean;
@@ -201,6 +246,8 @@ export type TelegramAccountConfig = {
    * Telegram expects unicode emoji (e.g., "👀") rather than shortcodes.
    */
   ackReaction?: string;
+  /** Placeholder message shown while processing (thinking indicator). */
+  placeholder?: TelegramPlaceholderConfig;
 };
 
 export type TelegramTopicConfig = {
