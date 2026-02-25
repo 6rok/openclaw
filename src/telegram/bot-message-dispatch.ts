@@ -8,7 +8,9 @@ import {
 import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
 import { clearHistoryEntriesIfEnabled } from "../auto-reply/reply/history.js";
+import { createPlaceholderController } from "../auto-reply/reply/placeholder.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../auto-reply/reply/provider-dispatcher.js";
+import { createSmartPlaceholderGenerator } from "../auto-reply/reply/smart-placeholder.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
 import { removeAckReactionAfterReply } from "../channels/ack-reactions.js";
 import { logAckFailure, logTypingFailure } from "../channels/logging.js";
@@ -38,7 +40,7 @@ import {
   createTelegramReasoningStepState,
   splitTelegramReasoningText,
 } from "./reasoning-lane-coordinator.js";
-import { editMessageTelegram } from "./send.js";
+import { sendMessageTelegram, deleteMessageTelegram, editMessageTelegram } from "./send.js";
 import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
@@ -412,6 +414,57 @@ export const dispatchTelegramMessage = async ({
     },
   });
 
+  // Placeholder controller — temporary "thinking" message with tool status
+  const placeholderConfig = telegramCfg.placeholder ?? {};
+  const smartGenerator = placeholderConfig.smart?.enabled
+    ? await createSmartPlaceholderGenerator({
+        config: placeholderConfig.smart,
+        agentDir: resolveAgentDir(cfg, route.agentId),
+        log: logVerbose,
+      })
+    : null;
+  const placeholder = createPlaceholderController({
+    config: {
+      ...placeholderConfig,
+      generateReaction: smartGenerator?.generateReaction,
+      generateToolDescription: smartGenerator?.generateToolDescription,
+    },
+    sender: {
+      send: async (text) => {
+        const result = await sendMessageTelegram(String(chatId), text, {
+          token: opts.token,
+          messageThreadId: threadSpec.id,
+          textMode: "html",
+        });
+        return { messageId: String(result.messageId), chatId: String(result.chatId) };
+      },
+      edit: async (messageId, text) => {
+        await editMessageTelegram(chatId, Number(messageId), text, {
+          api: bot.api,
+          cfg,
+          accountId: route.accountId,
+        });
+      },
+      delete: async (messageId) => {
+        await deleteMessageTelegram(String(chatId), Number(messageId), {
+          token: opts.token,
+        });
+      },
+    },
+    chatId: String(chatId),
+    log: logVerbose,
+  });
+
+  if (placeholderConfig.enabled) {
+    const userMessage = ctxPayload.Body ?? ctxPayload.BodyForAgent ?? "";
+    const historyEntries = historyKey ? groupHistories?.get(historyKey) : undefined;
+    const history = historyEntries?.map((e: { sender: string; body: string }) => ({
+      sender: e.sender,
+      body: e.body,
+    }));
+    await placeholder.start(userMessage, history);
+  }
+
   let queuedFinal = false;
 
   if (statusReactionController) {
@@ -438,6 +491,9 @@ export const dispatchTelegramMessage = async ({
         ...prefixOptions,
         typingCallbacks,
         deliver: async (payload, info) => {
+          if (info.kind === "final" && placeholder.isActive()) {
+            await placeholder.cleanup();
+          }
           const previewButtons = (
             payload.channelData?.telegram as { buttons?: TelegramInlineButtons } | undefined
           )?.buttons;
@@ -589,15 +645,22 @@ export const dispatchTelegramMessage = async ({
               splitReasoningOnNextStream = reasoningLane.hasStreamedMessage;
             }
           : undefined,
-        onToolStart: statusReactionController
-          ? async (payload) => {
-              await statusReactionController.setTool(payload.name);
-            }
-          : undefined,
+        onToolStart: async (payload) => {
+          if (statusReactionController) {
+            await statusReactionController.setTool(payload.name);
+          }
+          if (placeholder.isActive()) {
+            await placeholder.onTool(payload.name ?? "unknown", payload.args);
+          }
+        },
         onModelSelected,
       },
     }));
   } finally {
+    // Safety net: clean up placeholder if still active (e.g. error path)
+    if (placeholder.isActive()) {
+      await placeholder.cleanup();
+    }
     // Must stop() first to flush debounced content before clear() wipes state.
     const streamCleanupStates = new Map<
       NonNullable<DraftLaneState["stream"]>,
