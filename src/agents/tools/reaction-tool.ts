@@ -8,7 +8,7 @@
  * will display "💭 让我看看" instead of "🔧 Processing...".
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
 
 export function createReactionTool(): AnyAgentTool {
