@@ -16,6 +16,8 @@ import {
   resolveEnvelopeFormatOptions,
   runChannelInboundEvent,
 } from "openclaw/plugin-sdk/channel-inbound";
+import { createPlaceholderController } from "../../../src/auto-reply/reply/placeholder.js";
+import { createSmartPlaceholderGenerator } from "../../../src/auto-reply/reply/smart-placeholder.js";
 import { CURRENT_MESSAGE_MARKER } from "openclaw/plugin-sdk/channel-mention-gating";
 import {
   createChannelMessageReplyPipeline,
@@ -128,7 +130,7 @@ import {
   createTelegramReasoningStepState,
   splitTelegramReasoningText,
 } from "./reasoning-lane-coordinator.js";
-import { editMessageTelegram } from "./send.js";
+import { sendMessageTelegram, deleteMessageTelegram, editMessageTelegram } from "./send.js";
 import { getTelegramSequentialKey } from "./sequential-key.js";
 import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
 import {
@@ -1493,6 +1495,57 @@ export const dispatchTelegramMessage = async ({
   };
   const silentErrorReplies = telegramCfg.silentErrorReplies === true;
   const isDmTopic = !isGroup && threadSpec.scope === "dm" && threadSpec.id != null;
+
+  const placeholderConfig = telegramCfg.placeholder ?? {};
+  const smartGenerator = placeholderConfig.smart?.enabled
+    ? await createSmartPlaceholderGenerator({
+        config: placeholderConfig.smart,
+        agentDir: resolveAgentDir(cfg, route.agentId),
+        log: logVerbose,
+      })
+    : null;
+  const placeholder = createPlaceholderController({
+    config: {
+      ...placeholderConfig,
+      generateReaction: smartGenerator?.generateReaction,
+      generateToolDescription: smartGenerator?.generateToolDescription,
+    },
+    sender: {
+      send: async (text) => {
+        const result = await sendMessageTelegram(String(chatId), text, {
+          token: opts.token,
+          messageThreadId: threadSpec.id,
+          textMode: "html",
+        });
+        return { messageId: String(result.messageId), chatId: String(result.chatId) };
+      },
+      edit: async (messageId, text) => {
+        await editMessageTelegram(chatId, Number(messageId), text, {
+          api: bot.api,
+          cfg,
+          accountId: route.accountId,
+        });
+      },
+      delete: async (messageId) => {
+        await deleteMessageTelegram(String(chatId), Number(messageId), {
+          token: opts.token,
+        });
+      },
+    },
+    chatId: String(chatId),
+    log: logVerbose,
+  });
+
+  if (placeholderConfig.enabled) {
+    const userMessage = ctxPayload.Body ?? ctxPayload.BodyForAgent ?? "";
+    const historyEntries = historyKey ? groupHistories?.get(historyKey) : undefined;
+    const history = historyEntries?.map((e: { sender: string; body: string }) => ({
+      sender: e.sender,
+      body: e.body,
+    }));
+    await placeholder.start(userMessage, history);
+  }
+
   let queuedFinal = false;
   let skippedDuplicateAnswerBlockDraftDelivery = false;
   let suppressSilentReplyFallback = false;
@@ -1952,6 +2005,9 @@ export const dispatchTelegramMessage = async ({
                     }
                     if (info.kind === "final") {
                       await enqueueDraftLaneEvent(async () => {});
+                      if (placeholder.isActive()) {
+                        await placeholder.cleanup();
+                      }
                     }
                     // Hide handled post-answer probe failures while preserving final warnings.
                     // Agents may intentionally run searches/commands with no result, recover,
@@ -2372,6 +2428,9 @@ export const dispatchTelegramMessage = async ({
                     if (statusReactionController && toolName) {
                       await statusReactionController.setTool(toolName);
                     }
+                    if (placeholder.isActive()) {
+                      await placeholder.onTool(payload.name ?? "unknown", payload.args);
+                    }
                     await progressPromise;
                   },
                   onItemEvent: async (payload) => {
@@ -2513,6 +2572,9 @@ export const dispatchTelegramMessage = async ({
       }
     }
   } finally {
+    if (placeholder.isActive()) {
+      await placeholder.cleanup();
+    }
     dispatchWasSuperseded = isDispatchSuperseded();
     releaseReplyFence();
     endTelegramInboundEventDeliveryCorrelation();
