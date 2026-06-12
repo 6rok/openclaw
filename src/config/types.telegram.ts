@@ -353,3 +353,21 @@ export type TelegramConfig = {
   /** Optional default account id when multiple accounts are configured. */
   defaultAccount?: string;
 } & TelegramAccountConfig;
+
+export type SmartPlaceholderConfig = {
+  enabled?: boolean;
+  model?: string;
+  provider?: string;
+};
+
+export type PlaceholderToolDisplay = {
+  emoji?: string;
+  label?: string;
+};
+
+export type TelegramPlaceholderConfig = {
+  enabled?: boolean;
+  initialEmoji?: string;
+  smart?: SmartPlaceholderConfig;
+  toolDisplay?: Record<string, PlaceholderToolDisplay>;
+};
